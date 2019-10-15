@@ -1,0 +1,297 @@
+---
+title: "dv_assignment02_christian_regensius"
+author: "Christian Regensius"
+date: "13/10/2019"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: false
+    number_section: true
+    highlight: espresso
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center"
+  )
+```
+
+```{r}
+library(lubridate)
+library(ggplot2)
+library(leaflet)
+
+```
+
+
+# Project 1: Creating a publication-grade plot
+
+## Task
+Applying what you’ve learned, create an economics- or social-related plot that is polished with the appropriate annotations, aesthetics and some simple commentary.
+
+## Data Explanation
+To fulfill required task, I use "Brazilian E-Commerce Public Dataset by Olist" from kaggle.com. This data is a public dataset provided by Olist Store, a Brazilian ecommerce. The dataset contains 100k orders information from 2016 to 2018 at multiple marketplaces in Brazil.
+
+Picture below explain relationship of in the dataset
+![image source: https://www.kaggle.com/olistbr/brazilian-ecommerce](assets/data_schema.png)
+
+
+## Read Dataset
+
+```{r}
+
+# Read geolocation dataset
+olist_geolocation_dataset <- read.csv("data_input/olist_geolocation_dataset.csv")
+
+# Read customers dataset
+olist_customers_dataset <- read.csv("data_input/olist_customers_dataset.csv")
+
+# Read order items dataset
+olist_order_items_dataset<- read.csv("data_input/olist_order_items_dataset.csv")
+
+# Read order payment dataset
+olist_order_payments_dataset <- read.csv("data_input/olist_order_payments_dataset.csv")
+
+# Read review dataset
+olist_order_reviews_dataset <- read.csv("data_input/olist_order_reviews_dataset.csv")
+
+# Read orders dataset
+olist_orders_dataset <- read.csv("data_input/olist_orders_dataset.csv")
+
+# Read products dataset
+olist_products_dataset <- read.csv("data_input/olist_products_dataset.csv")
+
+# Read sellers dataset
+olist_sellers_dataset <- read.csv("data_input/olist_sellers_dataset.csv")
+
+# Read product category translation Brazil-English dataset
+product_category_name_translation <- read.csv("data_input/product_category_name_translation.csv")
+```
+
+
+## Data Cleansing
+
+```{r}
+# manipulate_customers_data 
+olist_customers_dataset$customer_id <- as.character(olist_customers_dataset$customer_id)
+olist_customers_dataset$customer_unique_id <- as.character(olist_customers_dataset$customer_unique_id)
+olist_customers_dataset$customer_zip_code_prefix <- as.factor(olist_customers_dataset$customer_zip_code_prefix)
+
+
+# check product dataset name information
+summary(olist_products_dataset)
+
+
+# check product category name translation information structure
+str(product_category_name_translation)
+
+# adjust product dataset
+olist_products_dataset$product_id <- as.character(olist_products_dataset$product_id)
+olist_products_dataset$product_category_name <- as.character(olist_products_dataset$product_category_name)
+
+# adjust product category data type
+product_category_name_translation$product_category_name <- as.character(product_category_name_translation$product_category_name)
+
+# merge product data with name translation
+olist_products_dataset<-merge(x=olist_products_dataset,y=product_category_name_translation, by.x ="product_category_name", by.y="product_category_name", all.x = T)
+
+
+
+# manipulate_sellers_data
+str(olist_sellers_dataset)
+olist_sellers_dataset$seller_id <- as.character(olist_sellers_dataset$seller_id)
+olist_sellers_dataset$seller_zip_code_prefix <- as.factor(olist_sellers_dataset$seller_zip_code_prefix)
+
+
+# manipulate_payments_data
+str(olist_order_payments_dataset)
+olist_order_payments_dataset$order_id <- as.character(olist_order_payments_dataset$order_id)
+
+# manipulate_order_items_data
+str(olist_order_items_dataset)
+olist_order_items_dataset$order_id <- as.character(olist_order_items_dataset$order_id)
+olist_order_items_dataset$order_item_id <- as.character(olist_order_items_dataset$order_item_id)
+olist_order_items_dataset$product_id <- as.character(olist_order_items_dataset$product_id)
+olist_order_items_dataset$seller_id <- as.character(olist_order_items_dataset$seller_id)
+olist_order_items_dataset$shipping_limit_date <- ymd_hms(olist_order_items_dataset$shipping_limit_date)
+
+# manipulate_order_reviews
+str(olist_order_reviews_dataset)
+olist_order_reviews_dataset$review_id <- as.character(olist_order_reviews_dataset$review_id)
+olist_order_reviews_dataset$order_id <- as.character(olist_order_reviews_dataset$order_id)
+olist_order_reviews_dataset$review_comment_title <- as.character(olist_order_reviews_dataset$review_comment_title)
+olist_order_reviews_dataset$review_comment_message <- as.character(olist_order_reviews_dataset$review_comment_message)
+olist_order_reviews_dataset$review_creation_date <- ymd_hms(olist_order_reviews_dataset$review_creation_date)
+olist_order_reviews_dataset$review_answer_timestamp <- ymd_hms(olist_order_reviews_dataset$review_answer_timestamp)
+summary(olist_order_reviews_dataset)
+
+
+
+# manipulate_order_data ----
+
+str(olist_orders_dataset)
+olist_orders_dataset$order_id <- as.character(olist_orders_dataset$order_id)
+olist_orders_dataset$customer_id <- as.character(olist_orders_dataset$customer_id)
+olist_orders_dataset$order_purchase_timestamp <- ymd_hms(olist_orders_dataset$order_purchase_timestamp)
+olist_orders_dataset$order_approved_at <- ymd_hms(olist_orders_dataset$order_approved_at)
+olist_orders_dataset$order_delivered_carrier_date <- ymd_hms(olist_orders_dataset$order_delivered_carrier_date)
+olist_orders_dataset$order_delivered_customer_date <- ymd_hms(olist_orders_dataset$order_delivered_customer_date)
+olist_orders_dataset$order_estimated_delivery_date <- ymd_hms(olist_orders_dataset$order_estimated_delivery_date)
+
+
+#--------------------------------------
+
+summary(olist_order_reviews_dataset)
+
+
+olist_order <- merge(x=olist_order_items_dataset,y=olist_orders_dataset, by.x ="order_id", by.y="order_id")
+olist_order <- merge(x=olist_order,y=olist_products_dataset, by.x ="product_id", by.y="product_id")
+olist_order <- merge(x=olist_order,y=olist_sellers_dataset, by.x ="seller_id", by.y="seller_id")
+olist_order <- merge(x=olist_order,y=olist_order_payments_dataset, by.x ="order_id", by.y="order_id")
+olist_order <- merge(x=olist_order,y=olist_customers_dataset, by.x ="customer_id", by.y="customer_id")
+olist_order <- merge(x=olist_order,y=olist_order_reviews_dataset, by.x ="order_id", by.y="order_id")
+# View(olist_order)
+
+
+order_review_payment <- merge(x=olist_orders_dataset,y=olist_order_reviews_dataset, by.x ="order_id", by.y="order_id")
+order_review_payment <- merge(x=order_review_payment,y=olist_order_payments_dataset, by.x ="order_id", by.y="order_id")
+
+olist_order_delivered <- olist_order[olist_order$order_status=="delivered",]
+
+
+```
+
+
+## Top 20 Product
+```{r}
+
+# tabulate order frequency ofeach product category
+summ_product <- as.data.frame(table(product_category_name_english = olist_order_delivered$product_category_name_english))
+
+# sort product frequency
+summ_product <- summ_product[order(summ_product$Freq, decreasing = T), ]
+
+# get top 20 product
+summ_top20_product <- summ_product[1:20,]
+
+
+summary(summ_product)
+
+
+# visualize Top 20 Most Ordered Product Category
+ggplot(summ_top20_product, aes(x=reorder(product_category_name_english, Freq), y=Freq))+
+  geom_col()+
+  coord_flip()+
+  labs(title = "Top 20 Most Ordered Product Category",
+       x = "Product", 
+       y = "Freq") +
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position = "bottom",
+        legend.text = element_text(angle = 90),
+        legend.text.align = 1) +
+  geom_text(aes(label = Freq), hjust = -0.1, size = 2) + 
+  theme_minimal()
+```
+
+Interpretasi: Bed Bath table category adalah kategori produk dengan penjualan terbanyak, dengan 11.816 total order.
+
+
+## Photo qty vs order frequency within product category
+
+
+```{r}
+# tabulate mean of product photo quantity of each product category
+mean_product_photo <- aggregate.data.frame(
+  list(photo_qty = olist_order_delivered$product_photos_qty), 
+  by = list(product_category_name_english = olist_order_delivered$product_category_name_english), 
+  mean)
+
+# tabulate mean of product photo quantity of each product category
+order_frequency <- aggregate(order_id~product_category_name_english, olist_order_delivered, length)
+
+# merge order frequency and mean of product photo quantity of each product
+order_photo_freq <- merge(x=mean_product_photo, y=order_frequency)
+order_photo_freq <- order_photo_freq[order(order_photo_freq$order_id,decreasing = T),]
+
+# Visualize descriptive analytic between Order Frequency and Photo Quantity
+ggplot(order_photo_freq, aes(photo_qty, order_id)) + 
+  geom_boxplot() +
+  geom_jitter(aes(col = order_photo_freq$order_id)) +
+  labs(title = "Relationship between Order Frequency and Photo Quantity",
+       x = "Mean Photo Quantity",
+       y = "Order Frequency",
+       col = "Order Frequency")
+```
+
+Interpretasi: Berdasarkan visualisasi sebaran data di atas, dapat ditarik kesimpulan bahwa tidak ada korelasi antara photo quantity dan jumlah order.
+
+
+```{r}
+# Relationship between products purchase with review score for bed_bath_table product category ----
+
+# calculate duration of days from product purchased and product received by customer
+order_review_payment$time_purchased_delivered <- as.numeric(date(order_review_payment$order_delivered_customer_date) - date(order_review_payment$order_purchase_timestamp))
+
+# calculate duration of days from estimated delivery and product received by customer
+order_review_payment$time_estimated_delivered <- as.numeric(date(order_review_payment$order_estimated_delivery_date) - date(order_review_payment$order_delivered_customer_date))
+
+# generate plot to inspect relationship
+plot(order_review_payment$time_purchased_delivered, order_review_payment$time_estimated_delivered)
+```
+
+Interpretasi: Dari plot di atas, diidentifikasi bahwa terdapat korelasi negatif antara estimated delivery dan actual delivery. 
+
+
+```{r}
+# visualize Actual vs Estimated
+ggplot(order_review_payment, aes(time_purchased_delivered, time_estimated_delivered)) +
+  geom_col(fill="darkblue") +
+  facet_wrap(~review_score) +
+  theme(strip.text = element_text(size = 7)) +
+  labs(title = "Actual Delivery Duration vs Estimated Deliver Duration",
+       x = "Actual Delivery Days",
+       y = "Estimated Delivery Days")
+
+```
+
+Interpretasi: Berdasarkan visualisasi di atas, nilai review 5 didapatkan saat durasi estimated time tinggi, tetapi durasi actual time rendah. 
+
+
+# Project 2: Creating an interactive map
+
+## Task
+Applying what you’ve learned, create a web page with an interactive map embedded on it. Use a custom icon for the map markers to represent business locations, and show details about each location pin (“markers”) upon user’s interaction with it.
+
+
+## Data Cleansing
+```{r}
+
+set.seed(3)
+
+customer_location_data <- olist_customers_dataset[,c("customer_unique_id","customer_zip_code_prefix")]
+
+# sampling 10.000 location, because it's not possible to sample customer due to insuficient memory when merge customer and location data
+olist_geolocation_dataset <- olist_geolocation_dataset[sample(1:10000),c("geolocation_zip_code_prefix","geolocation_lat","geolocation_lng")]
+
+customer_location_data <- merge(x=olist_customers_dataset, y=olist_geolocation_dataset, by.x = "customer_zip_code_prefix", by.y = "geolocation_zip_code_prefix", all.x = T)
+
+```
+
+## Generate Map
+```{r}
+
+map <- leaflet()
+map <- addTiles(map)
+map <- addMarkers(map,
+                  lng = customer_location_data$geolocation_lng,
+                  lat = customer_location_data$geolocation_lat,
+                  popup = customer_location_data$customer_unique_id,
+                  clusterOptions = markerClusterOptions())
+map
+```

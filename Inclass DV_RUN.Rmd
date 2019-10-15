@@ -1,0 +1,788 @@
+---
+title: "Inclass DV"
+author: "Wulan Andriyani"
+date: "07/10/2019"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: false
+    number_sections: true
+    theme: flatly
+    highlight: tango
+    css: style.css
+---
+
+# Libraries and Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+options(scipen = 9999)
+```
+
+```{r}
+library(lubridate)
+```
+
+# Data Cleansing/Preprocessing
+
+Untuk melakukan branding produk, perusahaan kami sedang membuat sebuah konten video yang akan diposting di YouTube. Supaya video tersebut nantinya efektif menarik konsumen, kami mencoba melakukan analisa terkait video-video yang diposting di YouTube. Kami mencoba menganalisa data terkait video-video YouTube yang trending di US, data tersebut diperoleh dari hasil scraping.
+
+1. read data
+```{r}
+vids <- read.csv("USvideos.csv")
+```
+
+2. check meta data using `str`
+```{r}
+str(vids)
+```
+
+3. adjust data type
+
+Apakah tipe data variabel/kolom pada vids sudah sesuai ?
+
+## Working with Date/Time
+
+Untuk mendapat hasil branding terbaik, tentunya video yang dibuat harus di posting pada `waktu yang tepat`. Namun, jika melihat struktur data yang dimiliki terdapat dua variabel date/time yang tipe datanya belum sesuai, yaitu `trending_date` dan `publish_time`.
+
+Pada workshop sebelumnya kita telah belajar mengubah tipe data date/time dengan menggunakan fungsi `as.Date()`. Fungsi tersebut memerlukan parameter `format` jika value yang dimuat tidak dalam bentuk default (YYYY-MM-DD).
+
+Jenis `format` untuk `as.Date()`:
+
+1. Year
+
+* %Y: YYYY (2019)
+* %y: YY (19)
+
+2. Month
+
+* %B: nama bulan (March)
+* %b: nama bulan, disingkat (Mar)
+* %m: MM (03)
+* %M: M (3)
+
+3. Day
+
+* %A: nama hari (Monday)
+* %d: DD (01)
+```{r}
+day1 <- "08/03/19"
+day2 <- "08-March-2019"
+day3 <- "Thursday, 09-05-2019"
+
+as.Date(day1, "%d/%m/%y")
+as.Date(day2, "%d-%B-%Y")
+as.Date(day3, "%A, %d-%m-%Y")
+```
+
+**inclass question**: range tahun 90 an - 2000 an
+
+Kita akan mencoba mengubah tipe data date/time menggunakan cara lain yang lebih mudah denggan menggunakan fungsi-fungsi pada package `lubridate`.
+```{r}
+# install.packages("lubridate")
+# library(lubridate)
+```
+
+```{r}
+head(vids$trending_date)
+tail(vids$trending_date)
+```
+
+Dengan menggunakan fungsi pada `lubridate`, sesuaikan tipe data untuk kolom `trending_date` dan `publish_time`
+```{r}
+head(ydm(vids$trending_date))
+# head(dmy(vids$trending_date))
+```
+
+```{r}
+vids$trending_date <- ydm(vids$trending_date)
+```
+
+```{r}
+head(vids$publish_time)
+head(ymd_hms(vids$publish_time, tz = "America/New_York"))
+head(ymd_hms(vids$publish_time, tz = "Asia/Jakarta"))
+```
+
+**inclass question**: perbedaan waktu new york-jakarta
+
+Time Zones
+
+https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List
+
+```{r}
+vids$publish_time <- ymd_hms(vids$publish_time, tz = "America/New_York")
+```
+
+Setelah menyesuaikan tipe data menjadi date/time, kita bisa menambah informasi lain dari data date/time. Kita akan mencoba membuat dua variabel baru, yaitu hari video tersebut trending yang akan disimpan di kolom `trending_dow` dan bulan video tersebut yang akan disimpan di kolom `trending_month`.
+```{r}
+# menampilkan hari ke-berapa, default (label = F)
+head(wday(vids$trending_date))
+
+# menampilkan hari apa, disingkat, default (abbr = T)
+head(wday(vids$trending_date, label = T))
+
+# menampilkan hari apa, tidak disingkat, default (week_start = 7/sunday)
+head(wday(vids$trending_date, label = T, abbr = F))
+
+# menampilkan hari apa, tidak disingkat, dengan levels hari dimulai dari 1/monday
+head(wday(vids$trending_date, label = T, abbr = F, week_start = 1))
+```
+
+```{r}
+vids$trending_dow <- wday(vids$trending_date, label = T, abbr = F, week_start = 1)
+```
+
+```{r}
+head(month(vids$trending_date, label = T, abbr = F))
+```
+
+```{r}
+vids$trending_month <- month(vids$trending_date, label = T, abbr = F)
+```
+
+**Latihan**:
+
+1. Buat variabel baru yang memberikan informasi hari video tersebut di posting/publish yang akan disimpan di kolom `publish_wday`
+```{r}
+vids$publish_wday <- wday(vids$publish_time, label = T, abbr = F, week_start = 1)
+```
+
+2. Buat variabel baru yang memberikan informasi waktu video tersebut di posting/publish yang akan disimpan di kolom `publish_hour`
+```{r}
+vids$publish_hour <- hour(vids$publish_time)
+```
+
+## if Condition, Sapply, and Lapply 
+
+### if Condition and Sapply
+
+3. Buat variabel baru yang memberikan informasi `periode waktu posting/publish per hari` yang akan disimpan di kolom `publish_when`. Periode tersebut harus mengikuti kondisi berikut:
+  - Jika video di publish **before 8**, maka masuk ke periode **"12AM to 8AM"**  
+  - Jika video di publish **between 8 and 16**, maka masuk ke periode **"8AM to 4PM"**   
+  - Jika video di publish **after 16**, maka masuk ke periode **"4PM to 12AM"**
+```{r}
+pw <- function(x){
+  if (x<8) {
+    x <- "12am to 8am"
+  } else if (x>=8 & x<16) {
+    x <- "8am to 4pm"
+  } else {
+    x <- "4pm to 12am"
+  }
+}
+
+sapply(head(vids$publish_hour), pw)
+```
+
+* sapply digunakan untuk menerapakan suatu fungsi dalam 1 kolom
+
+* lapply digunakan untuk menerapkan suatu fungsi ke beberapa kolom
+
+```{r}
+vids$publish_when <- as.factor(sapply(vids$publish_hour, pw))
+```
+
+### Sapply and Switch
+
+Setelah melakukan beberapa tahapan data cleansing, yaitu mengubah tipe data date/time dan menambah variabel baru dari variabel date/time. Dapat dilihat bahwa masih terdapat variabel yang tipe datanya belum sesuai, yaitu `title` dan `category_id`.
+```{r}
+vids$title <- as.character(vids$title)
+```
+
+Untuk variabel `category_id` setiap id masih berupa angka yang unik. Angka tersebut akan diganti dengan nama yang tepat untuk setiap category.
+
+Mengganti suatu nilai dengan fungsi `switch`
+```{r}
+switch (1,
+  "1" = "low",
+  "5" = "medium",
+  "10" = "high"
+)
+```
+
+```{r}
+dat <- c(1, 2, 5)
+
+# switch (dat,
+#   "1" = "low",
+#   "5" = "medium",
+#   "10" = "high"
+# )
+
+sapply(as.character(dat), switch,
+       "1" = "low",
+       "5" = "medium",
+       "10" = "high")
+```
+
+```{r}
+head(sapply(as.character(vids$category_id), switch,
+             "1" = "Film and Animation",
+                           "2" = "Autos and Vehicles", 
+                           "10" = "Music", 
+                           "15" = "Pets and Animals", 
+                           "17" = "Sports",
+                           "19" = "Travel and Events", 
+                           "20" = "Gaming", 
+                           "22" = "People and Blogs", 
+                           "23" = "Comedy",
+                           "24" = "Entertainment", 
+                           "25" = "News and Politics",
+                           "26" = "Howto and Style", 
+                           "27" = "Education",
+                           "28" = "Science and Technology", 
+                           "29" = "Nonprofit and Activism",
+                           "43" = "Shows"))
+```
+
+```{r}
+vids$category_id <- sapply(as.character(vids$category_id), switch,
+                           "1" = "Film and Animation",
+                           "2" = "Autos and Vehicles", 
+                           "10" = "Music", 
+                           "15" = "Pets and Animals", 
+                           "17" = "Sports",
+                           "19" = "Travel and Events", 
+                           "20" = "Gaming", 
+                           "22" = "People and Blogs", 
+                           "23" = "Comedy",
+                           "24" = "Entertainment", 
+                           "25" = "News and Politics",
+                           "26" = "Howto and Style", 
+                           "27" = "Education",
+                           "28" = "Science and Technology", 
+                           "29" = "Nonprofit and Activism",
+                           "43" = "Shows")
+
+vids$category_id <- as.factor(vids$category_id)
+```
+
+### Lapply
+
+`lapply` merupakan fungsi yang sangat membantu untuk menerapkan suatu fungsi ke beberapa kolom.
+```{r}
+vids[, c("views", "likes", "dislikes", "comment_count")] <- lapply(vids[, c("views", "likes", "dislikes", "comment_count")], as.numeric)
+```
+
+## Match and Unique
+
+Setelah melakukan cleansing data vids, jika dilihat lebih lanjut vids terdiri dari 13400 video yang sedang trending. Namun, terdapat banyak video yang trending selama beberapa hari. Jika dilihat kembali hanya terdapat 2986 video yang unik. Hal ini berarti setiap video kurang lebih trending selama 4.5 hari (13400/2986).
+
+Kita akan coba membuat sebuah data frame yang berisi data pertama kali video tersebut trending dengan bantuan fungsi `match` yang akan dimasukkan ke dalam objek `vids.u`
+```{r}
+dat <- data.frame(
+  student = c("wulan", "arga", "wulan", "ilma", "ilma", "arga", "wulan"), 
+  score = c(3, 2, 2, 3, 2, 3, 2))
+
+dat
+
+unique(dat$student)
+```
+
+```{r}
+match("ilma", dat$student)
+```
+
+subset: data[row, column]
+```{r}
+dat[match(unique(dat$student), dat$student), ]
+```
+
+```{r}
+vids.u <- vids[match(unique(vids$title), vids$title), ]
+```
+
+Dari data frame `vids.u` dibuat satu kolom yang berisi informasi lama waktu suatu video dari di publish samapi trending yang akan dimasukkan ke dalam kolom `timetotrend`. Jika video tersebut trending lebih dari 7 hari maka diberi label `8+`.
+```{r}
+head(vids.u$trending_date - date(vids.u$publish_time))
+
+vids.u$timetotrend <- vids.u$trending_date - date(vids.u$publish_time) 
+```
+
+```{r}
+head(as.factor(ifelse(vids.u$timetotrend > 7, 
+                             "8+", 
+                             vids.u$timetotrend)
+               )
+     )
+
+vids.u$timetotrend <- as.factor(ifelse(vids.u$timetotrend > 7, 
+                             "8+", 
+                             vids.u$timetotrend))
+```
+
+# Base Plotting/Statistical Plots
+
+Statistical plot membantu untuk melakukan exploratory data secara visual. Cara yang paling sederhana adalah menggunakan fungsi `plot()`. Plot sumbu `x` berupa `kategorik` dan sumbu `y` berupa `numerik` akan menghasilkan `boxplot`
+```{r}
+plot(as.factor(vids.u$publish_hour), vids.u$likes/vids.u$views)
+```
+
+Interpretasi:
+Dari plot di atas dapat diketahui bahwa tidak terdapat hubungan antara waktu publish dengan like ratio (likeable) seseorang, karena jam berapa pun video tersebut di publish like ratio nya hampir sama di sekitar 3-7 %. Lebih baik melakukan publish di jam 00.00 karena median likes ratio lebih tinggi di antara jam lainnya. 
+
+----------------------------------END DAY 1-----------------------------------
+
+Karena sasaran konsumen yang ingin di branding adalah orang-orang yang suka dengan konten video "Autos and Vehicles", "Gaming", and "Travel and Events" maka kita akan mencoba melakukan subsetting sebelum melakukan visualisasi data.
+```{r}
+vids.u[vids.u$category_id == "Autos and Vehicles" | vids.u$category_id == "Gaming" | vids.u$category_id == "Travel and Events",]
+
+vids.agt <- vids.u[vids.u$category_id == "Autos and Vehicles" | vids.u$category_id == "Gaming" | vids.u$category_id == "Travel and Events",]
+
+```
+
+Dari data vids.agt kita akan mencoba menggunakan fungsi `plot()` untuk sumbu `x` berupa `numerik` dan sumbu `y` berupa `numerik` yang akan menghasilkan `scatterplot`.
+```{r}
+
+plot()
+
+```
+
+Interpretasi:
+Semakin banyak jumlah views maka jumlah likes semakin banyak, namun kita tidak dapat mengatakan bahwa jumlah likes diakibatkan  oleh jumlah views.
+
+
+Kita akan membuang levels dari category_id yang tidak ada observasinya, kemudian kita akan menambahkan dua variabel, yaitu likes ratio dan dislikes ratio yang akan disimpan di kolom `likesp` dan `dislikesp`.
+```{r}
+head(vids.agt$category_id)
+head(factor(vids.agt$category_id))
+```
+
+```{r}
+
+vids.agt$category_id <- factor(vids.agt$category_id)
+
+```
+
+Jika kita lihat kembali scatterplot yang kita buat sebelumnya sangat tidak informatif, kita akan mencoba membuat scatter plot di atas menadi lebih informatif.
+```{r}
+
+plot(vids.agt$views, vids.agt$likes, col = vids.agt$category_id, pch = 19, xlab = "Views", ylab = "Likes")
+abline(lm(vids.agt$likes~vids.agt$views), lty = 2, lwd = 1)
+#abline(h = 50000, lty = 2, lwd = 1)
+legend("topright", legend = levels(vids.agt$category_id), fill = c(1:3))
+
+#help("abline")
+
+```
+
+Interpretasi:
+Views dan likes memiliki hubungan yang positif, jika dilihat dari jumlah views dan likes terbanyak dimiliki oleh category gaming.
+
+
+
+```{r}
+
+plot(vids.agt$dislikes, vids.agt$likes, col = vids.agt$category_id, pch = 19, xlab = "Dislikes", ylab = "Likes")
+abline(lm(vids.agt$likes~vids.agt$dislikes), lty = 2, lwd = 1)
+#abline(h = 50000, lty = 2, lwd = 1)
+legend("topright", legend = levels(vids.agt$category_id), fill = c(1:3))
+
+```
+
+Interpretasi:
+Ketika saya ingin membuat konten video gaming saya bisa meneliti lebih lanjut kira kira konten apa yang mendapat likes tinggi dan dislikes rendah. 
+
+```{r}
+
+vids.agt$likesp <- vids.agt$likes/vids.agt$views
+vids.agt$dislikesp <- vids.agt$dislikes/vids.agt$views
+
+#hist(vids.agt$likesp)
+hist(vids.agt$likesp, breaks = 20, ylim = c(1,20))
+lines(density(vids.agt$likesp), col=2)
+
+```
+
+Interpretasi:
+Likes rasio menyebar di sekitar 0-6% berarti saya sebagai tim marketing mempunyai target untuk mencapai likes ratio di sekitar 6%
+
+
+Dari ketiga konten video yang paling disukai ("Autos and Vehicles", "Gaming", and "Travel and Events"), saya hanya ingin melakukan visualisasi terhadap video-video yang trending dengan jumlah likes di atas 10,000. Maka sebelum melakukan visualisasi saya akan melakukan subsetting data yang akan disimpan ke objek `vids.ags`.
+```{r}
+vids.ags <- vids.agt[vids.agt$likes>10000,]
+
+
+
+```
+
+Setelah melakukan subsetting, data frame tersebut akan diurutkan (kecil -> besar) berdasarkan likes ratio nya.
+```{r}
+
+vids.ags <- vids.ags[order(vids.ags$likesp), ]
+
+```
+
+Kita akan membuat sebuah visualisasi yang bertujuan untuk menggambarkan likes ratio setiap YouTube channel untuk ketiga konten video di atas. YouTube channel mana yang memperoleh likes ratio tertinggi ? Dari YouTube channel tersebut saya dapat melihat kira-kira dari ketiga konten tersebut video dengan tema apa saja yang menarik viewer (konsumen).
+
+Sebelum membuat visualisasinya, saya terlebih dahulu menambahkan satu kolom `col` yang berisi warna untuk setiap konten video.
+```{r}
+
+vids.ags$col[vids.ags$category_id == "Autos and Vehicles"] <- "hotpink"
+vids.ags$col[vids.ags$category_id == "Gaming"] <- "darkblue"
+vids.ags$col[vids.ags$category_id == "Travel & Events"] <- "red"
+
+```
+
+```{r}
+
+dotchart(x = vids.ags$likesp, labels = vids.ags$channel_title, groups = vids.ags$category_id, cex = 0.7, pch = 19, color = vids.ags$col)
+
+```
+
+Grafik pie chart tidak disarankan untuk digunakan karena mata manusia sangat sulit membedakan luasan area
+
+# Visualize Using `ggplot2`
+
+Sebelum melakukan visualisasi data dengan menggunakan fungsi-fungsi pada package `ggplot2`, install dan load package tersebut terlebih dahulu.
+```{r}
+# install.packages("ggplot2")
+library(ggplot2)
+```
+
+## Simple Explanatory Analysis Using `ggplot2`
+
+Membuat visualisasi dengan `ggplot2` bisa dianalogikan seperti melukis di atas kanvas (layer by layer/gambar awal akan tertumpuk oleh gambar selanjutnya).
+
+Pada data `vids.ags` kita akan mencoba menambah satu kolom yang berisi informasi comment ratio yang akan disimpan ke dalam kolom `commentp`
+```{r}
+vids.ags$commentp <- vids.ags$comment_count/vids.ags$views
+
+
+```
+
+Kita akan mencoba membuat boxplot seperti pada saat menggunakan base plot dengan x adalah konten video (category_id) dan y adalah jumlah dislikes
+```{r}
+
+ggplot(vids.ags, aes(category_id, dislikes)) + 
+  geom_boxplot()
+
+```
+
+formula `ggplot()`:
+
+* `data`: data yang digunakan 
+* `mapping`: berisi `aes()`, aesthetic (tempat untuk menentukan sumbu x dan sumbu y pada grafik)
+
+Bagaimana jika ditambahkan geom_element lain (`geom_point`)
+```{r}
+
+ggplot(vids.ags, aes(category_id, dislikes)) + 
+  geom_boxplot() + 
+  geom_point()
+```
+
+Bagaimana jika ditambahkan geom_element lain (`geom_jitter`)
+```{r}
+
+ggplot(vids.ags, aes(category_id, dislikes)) + 
+  geom_boxplot() + 
+#  geom_point() +
+  geom_jitter()
+```
+
+Mana yang lebih cocok jika ingin melihat sebaran datanya menggunakan `geom_point` atau `geom_jitter` ?
+
+Supaya grafik di atas menjadi lebih informatif kita bisa menambahkan/menghilangkan label
+```{r}
+ggplot(vids.ags, aes(category_id, dislikes)) + 
+  geom_boxplot() + 
+  geom_jitter(aes(col = vids.ags$category_id)) +
+  labs(title = "Boxplot Each category",
+       x = "category",
+       y = "Total dislikes",
+       col = "Category")
+
+```
+
+**Interpretasi:**
+Diketahui bahwa variasi jumlah dislikes untuk konten video gaming paling besar dibandingkan video lain
+
+```{r}
+
+ggplot(vids.ags, aes(category_id, dislikes)) + 
+  geom_boxplot(col="yellow") + 
+  geom_jitter(aes(col = category_id, size = comment_count)) +
+  labs(title = "Boxplot Each category",
+       x = "category",
+       y = "Total dislikes",
+       col = "Category",
+       size = "Total Comment")
+
+```
+
+Kita ingin membuat sebuah visualisasi yang memberikan informasi channel-channel YouTube apa saja yang cukup populer (channel tersebut memiliki >= 10 video yang trending), berarti kita harus melakukan agregasi data terlebih dahulu untuk memperoleh data yang diperlukan. Hasil agregasi data disimpan ke dalam objek `temp1`
+
+```{r}
+temp1 <- as.data.frame(table(vids.u$channel_title))
+temp1 <- temp1[temp1$Freq>=10,]
+temp1 <- temp1[order(temp1$Freq, decreasing = T),]
+
+```
+
+```{r}
+ggplot(temp1, aes(reorder(Var1, Freq), Freq)) +
+  geom_col() + 
+  coord_flip() +
+  labs(x = "Channel Title", y = "Total Video Trending")
+```
+
+```{r}
+# aggregate hanya satu nilai 
+# seperti pivot tabel: sisi kiri adalah value-nya, sisi kanan adalah kolomnya 
+aggregate(likes ~ channel_title + category_id, vids.u,mean)
+```
+
+
+
+```{r}
+# aggregate.data.frame digunakan untuk melakukan agregasi berdasarkan variabel tertentu, bedanya dengan aggregate adalah bisa menampilkan lebih dari satu value
+
+# * list value yang ingin ditampilkan
+# * by : agregasi dilakukan based on variabel apa
+# * fun: formula yang ingin dicari
+
+# Contoh: rata-rata dislikes dan rata-rata comment
+temp2 <- aggregate.data.frame(list(dislikes = vids.u$dislikes, comment = vids.u$comment_count), by = list(channel = vids.u$channel_title), mean)
+
+temp2 <- temp2[order(temp2$dislikes, decreasing =T), ]
+temp2 <- temp2[1:20,]
+head(temp2)
+```
+
+```{r}
+#install.packages("scales")
+library(scales)
+```
+
+
+```{r}
+ggplot(temp2, aes(reorder(channel, dislikes), dislikes)) +
+  geom_col(aes(fill=comment)) +
+  coord_flip() +
+  labs(title = "Top 20 dislikes",
+       x = "Channel", 
+       y = "Dislikes \n(dalam ribuan)",
+       fill = "Comment") +
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position = "bottom",
+        legend.text = element_text(angle = 90),
+        legend.text.align = 1) +
+  scale_y_continuous(limits = c(0,400000),
+                     breaks = seq(0, 400000, 50000),
+#                     labels = comma) +
+                     labels = unit_format(unit = "", scale = c(0.001))) +
+  geom_text(aes(label = round(dislikes)), hjust = -0.1, size = 3)
+```
+* `Col`: jika memberi warna untuk frame
+* `fill`: warna untuk areanya
+`theme()` digunakanuntuk mengatur tampilan plot:
+* plot.title: untuk mengatur judul plotnya (`element_text()` untuk mengatur tulisannya, `hjust` untuk alingment, `face` untuk bold/italic/plain, `size` untuk mengatur font size)
+* `legend.position`: untuk mengatur posisi legend
+* `legend.text`: untuk mengatur value legend (`element_text()` untuk mengatur tulisannya, `angle` untuk mengatur kemiringannya)
+* `legend.text.align`: untuk mengatur jarak valuenya `-` semakin mendekat `+` semakin menjauh.
+
+`scale_y_continuous`: untuk mengatur range nilai pada sumbu y
+*`limits`: minimum dan maksimum range nilai
+*`breaks`: jarak setiap interval
+*`labels`: untuk mengatur value range nilai (`comma` untuk separator, `unit_format` untuk custom tulisan, `unit` untuk mengatur tulisan yang diinginkan, `scale` sebagai pengali range nilai)
+
+`geom_text`: digunakan untuk memberi label pada bar plot
+*`label`: nilai yang ingin ditampilkan
+*`hjust`: mengatur jarak label dengan barnya
+*`size`: untuk mengatur font size label
+
+**Interpretasi**:
+
+Dari plot di atas diketahui bahwa channle logan paul memiliki jumlah dislikes tertinggi, saya harus menghindari pembuatan konten video seperti video2 yang ada pada channel logan paul karena saya akan  melakukan branding (views, likes, comment)
+
+```{r}
+ggplot(temp2, aes(reorder(channel, dislikes), dislikes)) +
+  geom_col(aes(fill=comment)) +
+  coord_flip() +
+  labs(title = "Top 20 dislikes",
+       x = "Channel", 
+       y = "Dislikes \n(dalam ribuan)",
+       fill = "Comment") +
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position = "bottom",
+        legend.text = element_text(angle = 90),
+        legend.text.align = 1) +
+  scale_y_continuous(limits = c(0,400000),
+                     breaks = seq(0, 400000, 50000),
+#                     labels = comma) +
+                     labels = unit_format(unit = "", scale = c(0.001))) +
+  geom_label(aes(label = round(dislikes)), hjust = -0.1, size = 2) + 
+  theme_minimal()
+```
+
+```{r}
+
+theme_algoritma <- theme()
+saveRDS(theme_algoritma, "theme_algoritma.RDS")
+
+
+
+library(png)
+library(ggpubr)
+
+gambar <- readPNG(gambar.png)
+
+ggplot(data, aes(x,y)) + 
+  background_image(gambar) + 
+  geom_point()
+```
+
+## Multivariate plot
+
+```{r}
+library(tidyr)
+```
+
+# kita mau ngebandingin rasionya
+# kita akan membuat sebuah visualisasi untuk membandingkan likes rasio, dislikes rasio dan comment rasio. Sebelumnya, kita akan melakukan aggregasi data dengan mem-filter video yang dislikes-nya lebih banyak atau sama seperti likes rasionya dan videotersebut memiliki comment (commentdisabled-nya `F`). 
+
+```{r}
+vids.m <- vids.u[vids.u$dislikes >= vids.u$likes & vids.u$comments_disabled==F, ]
+
+vids.m$likesp <- vids.m$likes/vids.m$views
+vids.m$dislikesp <- vids.m$dislikes/vids.m$views
+vids.m$commentp <- vids.m$comment_count/vids.m$views
+
+vids.m <- aggregate.data.frame(list(likesp = vids.m$likesp, dislikesp = vids.m$dislikesp, commentp = vids.m$commentp), by = list(category = vids.m$category_id), mean)
+
+
+# gather adalah untuk mengubah data yang melebar (ke kolom) jadi memanjang (ke baris)
+vids.m <- gather(vids.m, key = "variable", value = "average", -category)
+
+```
+
+
+`gather` untuk membuat data yang awalnya lebar menjadi memanjang ke bawah:
+* `data`: data yang digunakan
+* `key`: kolom untuk menaruh nama label
+* `variable`: kolom untuk menaruh value
+* `column`: kolom yang tidak ikut diubah
+
+
+Contohkan fungsi spread
+```{r}
+# spread()
+```
+
+Contohkan dua kolom yang diubah memanjang
+```{r}
+
+```
+
+```{r}
+
+ggplot(vids.m, aes(category, average)) + 
+  geom_col(aes(fill = variable), position = "dodge") +
+  coord_flip()
+
+ggplot(vids.m, aes(category, average)) + 
+  geom_col(aes(fill = variable), position = "stack") +
+  coord_flip()
+
+ggplot(vids.m, aes(category, average)) + 
+  geom_col(aes(fill = variable), position = "fill") +
+  coord_flip()
+```
+
+
+## Facetting
+
+```{r}
+temp3 <- vids[vids$category_id=="Gaming", ]
+temp3$likesp <- temp3$likes/temp3$views
+
+temp3 <- temp3[order(temp3$likesp, decreasing = T),]
+temp3 <- temp3[1:30,]
+
+temp3
+
+```
+
+```{r}
+unique(temp3$title)
+```
+
+
+
+```{r}
+
+# facet wrap cuman untuk satu hal saja
+
+ggplot(temp3, aes(trending_date, likes)) +
+  geom_col(fill="lightblue") +
+  geom_point(aes(col=likes/dislikes)) +
+  facet_wrap(~title, scales = "free_x") +
+  theme(strip.text = element_text(size = 7))
+
+
+ggplot(temp3, aes(trending_date, views)) +
+  geom_col(fill="lightblue") +
+  geom_point(aes(col=likes/dislikes)) +
+  facet_wrap(~title, scales = "free_x") +
+  theme(strip.text = element_text(size = 7))
+
+ggplot(temp3, aes(trending_date, views)) +
+  geom_col(fill="lightblue") +
+  geom_point(aes(col=likes/dislikes)) +
+  #facet_wrap(~title, scales = "free_x") +
+  theme(strip.text = element_text(size = 7))
+
+```
+
+
+# facet_grid membagi menjadi dua hal saja
+# facet_grid(y~x) -> argumen pertama adalah sumbu y, argumen kedua adalah sumbu x
+
+```{r}
+ggplot(vids.agt, aes(timetotrend, likes/dislikes)) +
+  geom_jitter(aes(col=views, size=likes))+
+  facet_grid(category_id~publish_wday)
+```
+Interpretasi:
+Ketika saya membuat konten gaming di hari selasa pukul 00.00, supaya mendapat views yang lebih tinggi. 
+
+#leaflet sederhana
+```{r}
+#library(leaflet)
+rs_jak<- read.csv("data_input/rs.csv")
+```
+
+```{r}
+icon <- makeIcon(iconUrl = "assets/logo-rumah-sakit.png",
+                 iconWidth = 150*0.35,
+                 iconHeight = 150*0.35)
+
+map <- leaflet()
+map <- addTiles(map)
+map <- addMarkers(map,
+                  lng = rs_jak$longitude,
+                  lat = rs_jak$latitude,
+                  popup = rs_jak$nama_rsu,
+                  clusterOptions = markerClusterOptions(),
+                  icon = icon)
+map
+```
+
+
+
+
+Latihan:
+
+```{r}
+
+```
+
+```{r}
+
+```
+
